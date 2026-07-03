@@ -511,6 +511,21 @@
       "filename": "LowLevelSkins.js"
     },
     {
+      "slug": "microphone stream",
+      "id": "Microphone Stream",
+      "name": "Microphone Stream",
+      "description": "Stream microphone analysis and keep a configurable rolling recording buffer.",
+      "image": "images/Microphone Stream.png",
+      "by": [
+        {
+          "name": "Mistium",
+          "link": "https://github.com/Mistium"
+        }
+      ],
+      "featured": false,
+      "filename": "Microphone Stream.js"
+    },
+    {
       "slug": "originosl",
       "id": "originOSL",
       "name": "originOSL",

@@ -8,6 +8,7 @@ window.extensionSiteData = {
     "MediaUtils.js": "2",
     "Mist's Utils.js": "5.6",
     "MistFetch.js": "1",
+    "Microphone Stream.js": "1",
     "OASM.js": "10.6",
     "Persistent File System.js": "1",
     "Python.js": "3.2",
@@ -554,6 +555,21 @@ window.extensionSiteData = {
         ],
         "featured": false,
         "filename": "LowLevelSkins.js"
+      },
+      {
+        "slug": "microphone stream",
+        "id": "Microphone Stream",
+        "name": "Microphone Stream",
+        "description": "Stream microphone analysis and keep a configurable rolling recording buffer.",
+        "image": "images/Microphone Stream.png",
+        "by": [
+          {
+            "name": "Mistium",
+            "link": "https://github.com/Mistium"
+          }
+        ],
+        "featured": false,
+        "filename": "Microphone Stream.js"
       },
       {
         "slug": "originosl",
