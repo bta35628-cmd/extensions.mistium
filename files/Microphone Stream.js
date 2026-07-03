@@ -30,13 +30,19 @@
       this.frequencyData = null;
       this.updateTimer = null;
 
-      this.mediaRecorder = null;
+      this.processor = null;
+      this.silentGain = null;
       this.chunks = [];
       this.rollingSeconds = 10;
-      this.recordingMimeType = "";
+      this.recordingMimeType = "audio/mpeg";
       this.recordingStartedAt = 0;
+      this.recording = false;
+      this.recordingPaused = false;
       this.lastObjectUrl = "";
       this.lastError = "";
+      this.mp3Cache = null;
+      this.chunkVersion = 0;
+      this.encoderPromise = null;
 
       this.frame = {
         loudness: 0,
@@ -117,11 +123,7 @@
           {
             opcode: "startRecording",
             blockType: Scratch.BlockType.COMMAND,
-            text: "start recording as [TYPE] every [TIMESLICE] ms",
-            arguments: {
-              TYPE: { menu: "MIME_TYPES" },
-              TIMESLICE: { type: Scratch.ArgumentType.NUMBER, defaultValue: 250 }
-            }
+            text: "start MP3 recording"
           },
           {
             opcode: "stopRecording",
@@ -176,24 +178,20 @@
             }
           },
           {
-            opcode: "getRecordingDuration",
+            opcode: "getRecordingInfo",
             blockType: Scratch.BlockType.REPORTER,
-            text: "current recording seconds"
+            text: "current recording [INFO]",
+            arguments: {
+              INFO: { menu: "RECORDING_INFO" }
+            }
           },
           {
-            opcode: "getRecordingDataUri",
+            opcode: "getRecordingAs",
             blockType: Scratch.BlockType.REPORTER,
-            text: "current recording as data URI"
-          },
-          {
-            opcode: "getRecordingObjectUrl",
-            blockType: Scratch.BlockType.REPORTER,
-            text: "current recording as object URL"
-          },
-          {
-            opcode: "getChunkCount",
-            blockType: Scratch.BlockType.REPORTER,
-            text: "recording chunk count"
+            text: "current recording as [TYPE]",
+            arguments: {
+              TYPE: { menu: "RECORDING_OUTPUTS" }
+            }
           },
           {
             opcode: "getLastError",
@@ -218,19 +216,17 @@
               "mimeType"
             ]
           },
-          MIME_TYPES: {
-            acceptReporters: true,
-            items: [
-              "auto",
-              "audio/webm",
-              "audio/webm;codecs=opus",
-              "audio/ogg;codecs=opus",
-              "audio/mp4"
-            ]
-          },
           SIZE_UNITS: {
             acceptReporters: true,
             items: ["bytes", "KB", "MB"]
+          },
+          RECORDING_OUTPUTS: {
+            acceptReporters: true,
+            items: ["data URI", "object URL"]
+          },
+          RECORDING_INFO: {
+            acceptReporters: true,
+            items: ["seconds", "chunks"]
           }
         }
       };
@@ -264,6 +260,7 @@
         this.source = this.audioContext.createMediaStreamSource(this.stream);
         this.configureAnalyser(args.FFT);
         this.source.connect(this.analyser);
+        this.setupPcmCapture();
         this.startUpdates();
         this.lastError = "";
       } catch (error) {
@@ -280,6 +277,8 @@
         this.source.disconnect();
         this.source = null;
       }
+
+      this.disconnectPcmCapture();
 
       if (this.stream) {
         this.stream.getTracks().forEach(track => track.stop());
@@ -319,6 +318,48 @@
       if (this.source && oldAnalyser) {
         this.source.disconnect(oldAnalyser);
         this.source.connect(this.analyser);
+      }
+    }
+
+    setupPcmCapture() {
+      if (!this.audioContext || !this.source || this.processor) return;
+
+      const bufferSize = 4096;
+      this.processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+      this.silentGain = this.audioContext.createGain();
+      this.silentGain.gain.value = 0;
+
+      this.processor.onaudioprocess = event => {
+        if (!this.recording || this.recordingPaused) return;
+
+        const input = event.inputBuffer.getChannelData(0);
+        const samples = new Float32Array(input.length);
+        samples.set(input);
+        this.chunks.push({
+          samples,
+          time: Date.now(),
+          duration: samples.length / this.audioContext.sampleRate,
+          size: samples.length * 2
+        });
+        this.invalidateMp3Cache();
+        this.pruneChunks();
+      };
+
+      this.source.connect(this.processor);
+      this.processor.connect(this.silentGain);
+      this.silentGain.connect(this.audioContext.destination);
+    }
+
+    disconnectPcmCapture() {
+      if (this.processor) {
+        this.processor.onaudioprocess = null;
+        this.processor.disconnect();
+        this.processor = null;
+      }
+
+      if (this.silentGain) {
+        this.silentGain.disconnect();
+        this.silentGain = null;
       }
     }
 
@@ -370,7 +411,7 @@
         sampleRate: this.audioContext ? this.audioContext.sampleRate : 0,
         fftSize: this.analyser.fftSize,
         bufferSeconds: this.rollingSeconds,
-        recordingBytes: this.getRecordingBytes(),
+        recordingBytes: this.getRecordingBytesSync(),
         recordingSeconds: this.getRecordingDuration(),
         mimeType: this.recordingMimeType
       };
@@ -483,93 +524,55 @@
       return result;
     }
 
-    async startRecording(args) {
+    async startRecording() {
       if (!this.stream) {
         await this.startStream({ SECONDS: this.rollingSeconds, FFT: 2048 });
       }
 
-      if (!this.stream || typeof MediaRecorder === "undefined") {
-        this.lastError = "Recording is not supported in this browser.";
+      if (!this.stream || !this.audioContext) {
+        this.lastError = "Microphone stream is not available.";
         return;
       }
 
-      if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") return;
+      if (this.recording) return;
 
-      try {
-        const mimeType = this.pickMimeType(Cast.toString(args.TYPE));
-        const options = mimeType ? { mimeType } : {};
-        this.mediaRecorder = new MediaRecorder(this.stream, options);
-        this.recordingMimeType = this.mediaRecorder.mimeType || mimeType || "audio/webm";
-        this.recordingStartedAt = Date.now();
-
-        this.mediaRecorder.ondataavailable = event => {
-          if (!event.data || event.data.size <= 0) return;
-          this.chunks.push({
-            blob: event.data,
-            time: Date.now(),
-            size: event.data.size
-          });
-          this.pruneChunks();
-        };
-
-        this.mediaRecorder.onerror = event => {
-          this.lastError = event && event.error && event.error.message ? event.error.message : "Recording failed.";
-        };
-
-        this.mediaRecorder.start(clampInt(args.TIMESLICE, 50, 10000));
-        this.lastError = "";
-      } catch (error) {
-        this.lastError = error && error.message ? error.message : String(error);
-      }
+      this.clearRecording();
+      this.setupPcmCapture();
+      this.recording = true;
+      this.recordingPaused = false;
+      this.recordingMimeType = "audio/mpeg";
+      this.recordingStartedAt = Date.now();
+      this.lastError = "";
     }
 
     stopRecording() {
-      if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
-        return Promise.resolve();
-      }
-
-      return new Promise(resolve => {
-        const recorder = this.mediaRecorder;
-        const cleanup = () => {
-          recorder.onstop = null;
-          this.pruneChunks();
-          resolve();
-        };
-        recorder.onstop = cleanup;
-        try {
-          recorder.requestData();
-          recorder.stop();
-        } catch (error) {
-          this.lastError = error && error.message ? error.message : String(error);
-          cleanup();
-        }
-      });
+      this.recording = false;
+      this.recordingPaused = false;
+      this.pruneChunks();
+      return Promise.resolve();
     }
 
     pauseRecording() {
-      if (this.mediaRecorder && this.mediaRecorder.state === "recording") {
-        this.mediaRecorder.pause();
-      }
+      if (this.recording) this.recordingPaused = true;
     }
 
     resumeRecording() {
-      if (this.mediaRecorder && this.mediaRecorder.state === "paused") {
-        this.mediaRecorder.resume();
-      }
+      if (this.recording) this.recordingPaused = false;
     }
 
     clearRecording() {
       this.chunks = [];
-      this.recordingStartedAt = this.isRecording() ? Date.now() : 0;
+      this.recordingStartedAt = this.recording ? Date.now() : 0;
+      this.invalidateMp3Cache();
       this.revokeObjectUrl();
     }
 
     isRecording() {
-      return !!this.mediaRecorder && this.mediaRecorder.state === "recording";
+      return this.recording && !this.recordingPaused;
     }
 
     isRecordingPaused() {
-      return !!this.mediaRecorder && this.mediaRecorder.state === "paused";
+      return this.recording && this.recordingPaused;
     }
 
     setRollingSeconds(args) {
@@ -582,31 +585,42 @@
       return this.rollingSeconds;
     }
 
-    getRecordingSize(args) {
-      const bytes = this.getRecordingBytes();
+    async getRecordingSize(args) {
+      const bytes = await this.getRecordingBytes();
       const unit = Cast.toString(args.UNIT);
       if (unit === "KB") return this.round(bytes / 1024);
       if (unit === "MB") return this.round(bytes / 1024 / 1024);
       return bytes;
     }
 
-    getRecordingBytes() {
+    async getRecordingBytes() {
+      const blob = await this.createRecordingBlob();
+      return blob.size;
+    }
+
+    getRecordingBytesSync() {
       this.pruneChunks();
-      return this.chunks.reduce((total, chunk) => total + chunk.size, 0);
+      if (this.mp3Cache && this.mp3Cache.version === this.chunkVersion) {
+        return this.mp3Cache.blob.size;
+      }
+      return Math.ceil(this.getRecordingDuration() * 128000 / 8);
     }
 
     getRecordingDuration() {
       this.pruneChunks();
       if (this.chunks.length < 1) return 0;
 
-      const first = this.chunks[0].time;
-      const last = this.chunks[this.chunks.length - 1].time;
-      const end = this.isRecording() || this.isRecordingPaused() ? Date.now() : last;
-      return this.round(Math.max(0, (end - first) / 1000));
+      return this.round(this.chunks.reduce((total, chunk) => total + chunk.duration, 0));
     }
 
-    getRecordingDataUri() {
-      const blob = this.createRecordingBlob();
+    getRecordingInfo(args) {
+      const info = Cast.toString(args.INFO);
+      if (info === "chunks") return this.getChunkCount();
+      return this.getRecordingDuration();
+    }
+
+    async getRecordingDataUri() {
+      const blob = await this.createRecordingBlob();
       if (blob.size === 0) return "";
 
       return new Promise(resolve => {
@@ -620,8 +634,14 @@
       });
     }
 
-    getRecordingObjectUrl() {
-      const blob = this.createRecordingBlob();
+    async getRecordingAs(args) {
+      const type = Cast.toString(args.TYPE);
+      if (type === "object URL") return await this.getRecordingObjectUrl();
+      return await this.getRecordingDataUri();
+    }
+
+    async getRecordingObjectUrl() {
+      const blob = await this.createRecordingBlob();
       if (blob.size === 0) return "";
 
       this.revokeObjectUrl();
@@ -638,37 +658,116 @@
       return this.lastError;
     }
 
-    createRecordingBlob() {
+    async createRecordingBlob() {
       this.pruneChunks();
-      return new Blob(this.chunks.map(chunk => chunk.blob), {
-        type: this.recordingMimeType || "audio/webm"
-      });
+      if (this.chunks.length === 0) {
+        return new Blob([], { type: "audio/mpeg" });
+      }
+
+      if (this.mp3Cache && this.mp3Cache.version === this.chunkVersion) {
+        return this.mp3Cache.blob;
+      }
+
+      const blob = await this.encodeMp3();
+      this.mp3Cache = {
+        version: this.chunkVersion,
+        blob
+      };
+      return blob;
     }
 
-    pickMimeType(type) {
-      const requested = type === "auto" ? "" : type;
-      if (requested && MediaRecorder.isTypeSupported(requested)) return requested;
+    async encodeMp3() {
+      const lame = await this.loadMp3Encoder();
+      if (!lame) return new Blob([], { type: "audio/mpeg" });
 
-      const options = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/ogg;codecs=opus",
-        "audio/mp4"
-      ];
+      const inputSampleRate = this.audioContext ? this.audioContext.sampleRate : 44100;
+      const outputSampleRate = this.getMp3SampleRate(inputSampleRate);
+      const encoder = new lame.Mp3Encoder(1, outputSampleRate, 128);
+      const mp3Buffers = [];
 
-      for (const option of options) {
-        if (MediaRecorder.isTypeSupported(option)) return option;
+      for (const chunk of this.chunks) {
+        const samples = inputSampleRate === outputSampleRate
+          ? chunk.samples
+          : this.resampleFloat32(chunk.samples, inputSampleRate, outputSampleRate);
+        const pcm = this.floatToInt16(samples);
+        const blockSize = 1152;
+        for (let i = 0; i < pcm.length; i += blockSize) {
+          const encoded = encoder.encodeBuffer(pcm.subarray(i, i + blockSize));
+          if (encoded.length > 0) mp3Buffers.push(encoded);
+        }
       }
-      return "";
+
+      const tail = encoder.flush();
+      if (tail.length > 0) mp3Buffers.push(tail);
+
+      return new Blob(mp3Buffers, { type: "audio/mpeg" });
+    }
+
+    getMp3SampleRate(sampleRate) {
+      const allowed = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
+      return allowed.includes(Math.round(sampleRate)) ? Math.round(sampleRate) : 44100;
+    }
+
+    resampleFloat32(samples, fromRate, toRate) {
+      const ratio = fromRate / toRate;
+      const length = Math.max(1, Math.round(samples.length / ratio));
+      const output = new Float32Array(length);
+
+      for (let i = 0; i < length; i++) {
+        const position = i * ratio;
+        const before = Math.floor(position);
+        const after = Math.min(before + 1, samples.length - 1);
+        const fraction = position - before;
+        output[i] = samples[before] + (samples[after] - samples[before]) * fraction;
+      }
+
+      return output;
+    }
+
+    async loadMp3Encoder() {
+      if (window.lamejs && window.lamejs.Mp3Encoder) return window.lamejs;
+      if (this.encoderPromise) return this.encoderPromise;
+
+      this.encoderPromise = new Promise(resolve => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js";
+        script.async = true;
+        script.onload = () => resolve(window.lamejs || null);
+        script.onerror = () => {
+          this.lastError = "Could not load MP3 encoder.";
+          resolve(null);
+        };
+        document.head.appendChild(script);
+      });
+
+      return this.encoderPromise;
+    }
+
+    floatToInt16(samples) {
+      const pcm = new Int16Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        const sample = clamp(samples[i], -1, 1);
+        pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
+      }
+      return pcm;
     }
 
     pruneChunks() {
       if (this.rollingSeconds <= 0 || this.chunks.length === 0) return;
 
-      const cutoff = Date.now() - this.rollingSeconds * 1000;
-      while (this.chunks.length > 1 && this.chunks[0].time < cutoff) {
+      let duration = this.chunks.reduce((total, chunk) => total + chunk.duration, 0);
+      let changed = false;
+      while (this.chunks.length > 1 && duration > this.rollingSeconds) {
+        duration -= this.chunks[0].duration;
         this.chunks.shift();
+        changed = true;
       }
+      if (changed) this.invalidateMp3Cache();
+    }
+
+    invalidateMp3Cache() {
+      this.chunkVersion++;
+      this.mp3Cache = null;
     }
 
     revokeObjectUrl() {
