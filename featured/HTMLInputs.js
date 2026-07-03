@@ -9,6 +9,10 @@
 
 (function (Scratch) {
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("HTMLInputs must run unsandboxed.");
+  }
+
   const Cast = Scratch.Cast;
   const runtime = Scratch.vm.runtime;
   class htmlInputs {

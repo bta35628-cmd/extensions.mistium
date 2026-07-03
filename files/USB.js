@@ -8,6 +8,10 @@
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
 (function (Scratch) {
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("USB must run unsandboxed.");
+  }
+
   const { Cast, ArgumentType, BlockType } = Scratch;
   const vm = Scratch.vm;
 
@@ -140,14 +144,24 @@
       return `${device.manufacturerName} ${device.productName} (${device.productId})`;
     }
 
+    _deviceKey(device, index = 0) {
+      return device.serialNumber || [
+        device.vendorId,
+        device.productId,
+        device.manufacturerName,
+        device.productName,
+        index
+      ].map(value => value ?? '').join(':');
+    }
+
     /**
      * Generates a list of devices for Scratch menus.
      */
     _deviceList() {
       if (!this.supported()) return ["no devices"];
-      const devices = Object.values(this.deviceObjects).map(device => ({
+      const devices = Object.entries(this.deviceObjects).map(([key, device]) => ({
         text: this._deviceGetName(device),
-        value: device.serialNumber
+        value: key
       }));
       return devices.length ? devices : ["no devices"];
     }
@@ -158,8 +172,8 @@
     async _updateDevices() {
       if (!this.supported()) return;
       this.openedDevices = await navigator.usb.getDevices();
-      this.deviceObjects = this.openedDevices.reduce((acc, device) => {
-        acc[device.serialNumber] = device;
+      this.deviceObjects = this.openedDevices.reduce((acc, device, index) => {
+        acc[this._deviceKey(device, index)] = device;
         return acc;
       }, {});
     }
@@ -171,7 +185,7 @@
       if (!this.supported()) return;
       try {
         const device = await navigator.usb.requestDevice({ filters: [] });
-        this.deviceObjects[device.serialNumber] = device;
+        this.deviceObjects[this._deviceKey(device)] = device;
         await this._updateDevices();
       } catch (error) {
         console.error('USB device request failed:', error);
@@ -183,8 +197,9 @@
      */
     async connectedList() {
       if (!this.supported()) return "[]";
-      const devices = Object.values(this.deviceObjects).map(device => ({
+      const devices = Object.entries(this.deviceObjects).map(([key, device]) => ({
         serialNumber: device.serialNumber,
+        id: key,
         manufacturerName: device.manufacturerName,
         productName: device.productName,
         productId: device.productId,
@@ -209,6 +224,29 @@
       const infoKey = Cast.toString(INFO);
       const device = this.deviceObjects[deviceId];
       return device ? device[infoKey] : '';
+    }
+
+    async _prepareEndpoint(device, direction) {
+      if (!device.opened) await device.open();
+
+      if (device.configuration === null) {
+        const configuration = device.configurations[0];
+        if (!configuration) throw new Error('No USB configuration available');
+        await device.selectConfiguration(configuration.configurationValue);
+      }
+
+      for (const iface of device.configuration.interfaces) {
+        for (const alternate of iface.alternates) {
+          const endpoint = alternate.endpoints.find(item => item.direction === direction);
+          if (!endpoint) continue;
+
+          if (!iface.claimed) await device.claimInterface(iface.interfaceNumber);
+          await device.selectAlternateInterface(iface.interfaceNumber, alternate.alternateSetting);
+          return endpoint.endpointNumber;
+        }
+      }
+
+      throw new Error(`No ${direction} endpoint available`);
     }
 
     /**
@@ -253,19 +291,8 @@
       const device = this.deviceObjects[deviceId];
       if (!device) return '';
 
-      if (!device.opened) await device.open();
-
-      if (device.configuration === null) await device.selectConfiguration(1);
-
-      // Find an unclaimed interface.
-      const availableInterface = device.configurations[0].interfaces.find(iface => !iface.claimed);
-      if (!availableInterface) throw new Error('No available interface to claim');
-
-      const interfaceNumber = availableInterface.interfaceNumber;
-      await device.claimInterface(interfaceNumber);
-      await device.selectAlternateInterface(interfaceNumber, 0);
-
-      const result = await device.transferIn(1, 64);
+      const endpointNumber = await this._prepareEndpoint(device, 'in');
+      const result = await device.transferIn(endpointNumber, 64);
       return new TextDecoder().decode(result.data);
     }
 
@@ -280,9 +307,8 @@
       const device = this.deviceObjects[deviceId];
       if (!device) return;
 
-      if (!device.opened) await device.open();
-
-      await device.transferOut(1, new TextEncoder().encode(dataStr));
+      const endpointNumber = await this._prepareEndpoint(device, 'out');
+      await device.transferOut(endpointNumber, new TextEncoder().encode(dataStr));
     }
 
     // Event handler stubs.

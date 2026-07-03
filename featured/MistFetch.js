@@ -9,6 +9,10 @@
 
 (function (Scratch) {
 
+    if (!Scratch.extensions.unsandboxed) {
+        throw new Error("MistFetch must run unsandboxed.");
+    }
+
     const Cast = Scratch.Cast;
 
     class MistFetch {

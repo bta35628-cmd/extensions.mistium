@@ -8,6 +8,10 @@
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
 (function (Scratch) {
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("roturVoice must run unsandboxed.");
+  }
+
   // PeerJS
   // https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js
   (() => {
@@ -43,6 +47,7 @@
       this.incomingCall = null;
       this.videoEnabled = false;
       this.remoteVideoEnabled = false;
+      this.debug = false;
       
       // Video rendering
       this.videoCanvas = null;
@@ -64,6 +69,10 @@
         navigator.mediaDevices.getUserMedia &&
         window.RTCPeerConnection
       );
+    }
+
+    _debug(...args) {
+      if (this.debug) console.log(...args);
     }
 
     getInfo() {
@@ -284,7 +293,7 @@
 
         return new Promise((resolve) => {
           this.peer.on('open', (id) => {
-            console.log('Connected with ID:', id);
+            this._debug('Connected with ID:', id);
             this.connectionStatus = 'connected';
             resolve();
           });
@@ -296,14 +305,14 @@
           });
 
           this.peer.on('close', () => {
-            console.log('Peer connection closed');
+            this._debug('Peer connection closed');
             this.connectionStatus = 'disconnected';
           });
 
           this.peer.on('call', (incomingCall) => {
             this.incomingCall = incomingCall;
             this.callStatus = 'incoming';
-            console.log('Incoming call from:', incomingCall.peer);
+            this._debug('Incoming call from:', incomingCall.peer);
           });
 
           setTimeout(() => {
@@ -345,11 +354,11 @@
           audio: true,
           video: false
         });
-        console.log('Audio stream acquired');
+        this._debug('Audio stream acquired');
         
         // If we're already on a call, add the audio track to the existing call
         if (this.call && this.call.peerConnection) {
-          console.log('Adding audio to existing call...');
+          this._debug('Adding audio to existing call...');
           this._updateCallStream();
         }
         
@@ -388,11 +397,11 @@
         }
 
         if (this.videoStream) {
-          console.log('Video stream already exists');
+          this._debug('Video stream already exists');
           return true;
         }
 
-        console.log('Requesting video stream from getUserMedia...');
+        this._debug('Requesting video stream from getUserMedia...');
         this.videoStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {
@@ -401,13 +410,13 @@
           }
         });
         
-        console.log('Video stream acquired, tracks:', this.videoStream.getTracks().length);
+        this._debug('Video stream acquired, tracks:', this.videoStream.getTracks().length);
         this.videoStream.getTracks().forEach(track => {
-          console.log('Video track:', track.kind, track.enabled, track.readyState);
+          this._debug('Video track:', track.kind, track.enabled, track.readyState);
         });
         
         this.videoEnabled = true;
-        console.log('Video stream acquired');
+        this._debug('Video stream acquired');
         
         // Create video element for local preview
         if (!this.videoElement) {
@@ -421,7 +430,7 @@
         
         // If we're already on a call, add the video track to the existing call
         if (this.call && this.call.peerConnection) {
-          console.log('Adding video to existing call...');
+          this._debug('Adding video to existing call...');
           this._updateCallStream();
         }
         
@@ -438,23 +447,23 @@
       
       if (this.audioStream) {
         const audioTracks = this.audioStream.getTracks();
-        console.log('Adding audio tracks:', audioTracks.length);
+        this._debug('Adding audio tracks:', audioTracks.length);
         tracks.push(...audioTracks);
       }
       
       if (this.videoStream) {
         const videoTracks = this.videoStream.getTracks();
-        console.log('Adding video tracks:', videoTracks.length);
+        this._debug('Adding video tracks:', videoTracks.length);
         tracks.push(...videoTracks);
       }
       
       if (tracks.length === 0) {
-        console.log('No tracks available for combined stream');
+        this._debug('No tracks available for combined stream');
         return null;
       }
       
       const combinedStream = new MediaStream(tracks);
-      console.log('Combined stream created with tracks:', {
+      this._debug('Combined stream created with tracks:', {
         audio: combinedStream.getAudioTracks().length,
         video: combinedStream.getVideoTracks().length
       });
@@ -464,7 +473,7 @@
 
     _updateCallStream() {
       if (!this.call || !this.call.peerConnection) {
-        console.log('No active call to update');
+        this._debug('No active call to update');
         return;
       }
 
@@ -472,23 +481,31 @@
         const pc = this.call.peerConnection;
         const senders = pc.getSenders();
         
-        // Remove all existing video senders
-        const videoSenders = senders.filter(sender => sender.track && sender.track.kind === 'video');
-        videoSenders.forEach(sender => {
-          console.log('Removing existing video sender');
+        // Remove existing media senders before adding the currently enabled tracks.
+        const mediaSenders = senders.filter(sender => sender.track && (sender.track.kind === 'audio' || sender.track.kind === 'video'));
+        mediaSenders.forEach(sender => {
+          this._debug('Removing existing media sender');
           pc.removeTrack(sender);
         });
+
+        if (this.audioStream) {
+          const audioTracks = this.audioStream.getAudioTracks();
+          audioTracks.forEach(track => {
+            this._debug('Adding audio track to peer connection');
+            pc.addTrack(track, this.audioStream);
+          });
+        }
 
         // Add new video tracks if available
         if (this.videoStream) {
           const videoTracks = this.videoStream.getVideoTracks();
           videoTracks.forEach(track => {
-            console.log('Adding video track to peer connection');
+            this._debug('Adding video track to peer connection');
             pc.addTrack(track, this.videoStream);
           });
         }
 
-        console.log('Call stream updated successfully');
+        this._debug('Call stream updated successfully');
       } catch (error) {
         console.error('Error updating call stream:', error);
       }
@@ -496,7 +513,7 @@
 
     answerCall() {
       if (!this.incomingCall) {
-        console.log('No incoming call to answer');
+        this._debug('No incoming call to answer');
         return;
       }
 
@@ -570,7 +587,7 @@
           this.callStatus = 'connecting';
           this.callPartner = name;
 
-          console.log(`Attempting to call ${name}...`);
+          this._debug(`Attempting to call ${name}...`);
 
           const callTimeout = setTimeout(() => {
             if (this.callStatus === 'connecting') {
@@ -597,7 +614,7 @@
             return;
           }
 
-          console.log('Call object created successfully');
+          this._debug('Call object created successfully');
           this._setupCallEvents(callTimeout);
 
           this.call.on('stream', () => {
@@ -636,7 +653,7 @@
 
       this.call.on('stream', (remoteStream) => {
         if (callTimeout) clearTimeout(callTimeout);
-        console.log('Received remote stream');
+        this._debug('Received remote stream');
         this.remoteStream = remoteStream;
         this.callStatus = 'connected';
         this._triggerCallChangeEvent();
@@ -645,7 +662,7 @@
         const videoTracks = remoteStream.getVideoTracks();
         this.remoteVideoEnabled = videoTracks.length > 0;
         
-        console.log('Remote stream tracks:', {
+        this._debug('Remote stream tracks:', {
           video: videoTracks.length,
           audio: remoteStream.getAudioTracks().length,
           hasVideo: this.remoteVideoEnabled
@@ -678,23 +695,23 @@
             document.body.appendChild(this.remoteVideoElement);
           }
           this.remoteVideoElement.srcObject = remoteStream;
-          console.log('Remote video element setup complete, enabled:', this.remoteVideoEnabled);
+          this._debug('Remote video element setup complete, enabled:', this.remoteVideoEnabled);
           
           // Listen for track changes
           remoteStream.addEventListener('addtrack', (event) => {
-            console.log('Track added to remote stream:', event.track.kind);
+            this._debug('Track added to remote stream:', event.track.kind);
             if (event.track.kind === 'video') {
               this.remoteVideoEnabled = true;
-              console.log('Remote video enabled via addtrack');
+              this._debug('Remote video enabled via addtrack');
             }
           });
           
           remoteStream.addEventListener('removetrack', (event) => {
-            console.log('Track removed from remote stream:', event.track.kind);
+            this._debug('Track removed from remote stream:', event.track.kind);
             if (event.track.kind === 'video') {
               const videoTracks = remoteStream.getVideoTracks();
               this.remoteVideoEnabled = videoTracks.length > 0;
-              console.log('Remote video status after removetrack:', this.remoteVideoEnabled);
+              this._debug('Remote video status after removetrack:', this.remoteVideoEnabled);
             }
           });
         } catch (e) {
@@ -704,7 +721,7 @@
 
       this.call.on('close', () => {
         if (callTimeout) clearTimeout(callTimeout);
-        console.log('Call closed');
+        this._debug('Call closed');
         if (this.remoteStream) {
           this.remoteStream = null;
         }
@@ -784,7 +801,7 @@
 
     renderLocalVideo(args, util) {
       if (!this.videoEnabled || !this.videoElement) {
-        console.log('Local video not enabled');
+        this._debug('Local video not enabled');
         return;
       }
 
@@ -793,18 +810,18 @@
 
     renderRemoteVideo(args, util) {
       if (!this.remoteStream) {
-        console.log('No remote stream available');
+        this._debug('No remote stream available');
         return;
       }
       
       const videoTracks = this.remoteStream.getVideoTracks();
       if (videoTracks.length === 0) {
-        console.log('Remote stream has no video tracks');
+        this._debug('Remote stream has no video tracks');
         return;
       }
       
       if (!this.remoteVideoElement) {
-        console.log('Remote video element not initialized');
+        this._debug('Remote video element not initialized');
         return;
       }
 
@@ -821,7 +838,7 @@
         this.call = null;
         this.callPartner = '';
         this.callStatus = 'idle';
-        console.log('Call ended');
+        this._debug('Call ended');
 
         try {
           const audioElement = document.getElementById('roturCallAudio');

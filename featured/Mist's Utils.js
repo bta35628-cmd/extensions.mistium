@@ -2,9 +2,9 @@
  * Mist's Utils
  * @author Mistium (mistium.com), Miyo (miyo.icu)
  * @version 5.9
- * @copyright MIT & LGPLv3 License
  * Do not remove this comment
  */
+// License: MIT AND LGPL-3.0
 // Description: A bunch of compiled stuff
 
 

@@ -6,6 +6,8 @@ const path = require('path');
 const FEATURED_DIR = path.join(__dirname, 'featured');
 const FILES_DIR = path.join(__dirname, 'files');
 const OUTPUT_FILE = path.join(__dirname, 'generated-metadata', 'extensions-v0.json');
+const SITE_DATA_FILE = path.join(__dirname, 'site-data.js');
+const VERSIONS_FILE = path.join(__dirname, 'versions.json');
 
 function extractDescription(content) {
   const match = content.match(/^[ \t]*\/\/\s*Description\s*:\s*(.+)$/im);
@@ -98,12 +100,22 @@ function generateMetadata() {
   }
   
   fs.writeFileSync(OUTPUT_FILE, JSON.stringify(metadata, null, 2));
+
+  const versions = fs.existsSync(VERSIONS_FILE)
+    ? JSON.parse(fs.readFileSync(VERSIONS_FILE, 'utf8'))
+    : {};
+  const siteData = {
+    versions,
+    metadata
+  };
+  fs.writeFileSync(SITE_DATA_FILE, `window.extensionSiteData = ${JSON.stringify(siteData, null, 2)};\n`);
   
   console.log(`\n✓ Metadata generated successfully!`);
   console.log(`  Total extensions: ${allExtensions.length}`);
   console.log(`  Featured: ${featuredExtensions.length}`);
   console.log(`  Other: ${fileExtensions.length}`);
   console.log(`  Output: ${OUTPUT_FILE}`);
+  console.log(`  Site data: ${SITE_DATA_FILE}`);
 }
 
 try {

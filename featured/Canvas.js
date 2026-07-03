@@ -10,6 +10,10 @@
 
 (function (Scratch) {
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("Canvas must run unsandboxed.");
+  }
+
   const vm = Scratch.vm;
   const runtime = vm.runtime;
   const renderer = runtime.renderer;
@@ -19,7 +23,6 @@
     constructor(runtime) {
       this.runtime = runtime;
       this.canvases = {};
-      console.log('CanvasExtension initialized');
     }
 
 

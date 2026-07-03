@@ -7,6 +7,10 @@
 // If a copy of the MPL was not distributed with this file,
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
+if (!Scratch.extensions.unsandboxed) {
+    throw new Error("Persistent File System must run unsandboxed.");
+}
+
 class IndexedDBFileSystem {
     constructor() {
         this.dbName = 'ScratchVFS';

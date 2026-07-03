@@ -12,6 +12,10 @@
 (function (Scratch) {
   "use strict";
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("OASM must run unsandboxed.");
+  }
+
   const vm = Scratch.vm,
     runtime = vm.runtime;
 

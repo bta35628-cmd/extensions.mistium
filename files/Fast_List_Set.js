@@ -1,3 +1,7 @@
+// Name: Fast List Set
+// Author: Mistium
+// Description: Set Scratch list contents from JSON arrays.
+
 // License: MPL-2.0
 // This Source Code is subject to the terms of the Mozilla Public License, v2.0,
 // If a copy of the MPL was not distributed with this file,
@@ -5,6 +9,10 @@
 
 (function (Scratch) {
     "use strict";
+
+    if (!Scratch.extensions.unsandboxed) {
+        throw new Error("Set List must run unsandboxed.");
+    }
   
     const vm = Scratch.vm;
 

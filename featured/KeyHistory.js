@@ -11,6 +11,10 @@
 (function (Scratch) {
   "use strict";
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("KeyHistory must run unsandboxed.");
+  }
+
   class KeyHistory {
     constructor() {
       this.keyObj = {};

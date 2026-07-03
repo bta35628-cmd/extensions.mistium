@@ -31,7 +31,6 @@
       document.addEventListener("keyup", (event) => this.onKeyUp(event));
       document.addEventListener("paste", (event) => this.onPaste(event));
 
-      console.log("Key History Extension Loaded");
     }
 
     getInfo() {

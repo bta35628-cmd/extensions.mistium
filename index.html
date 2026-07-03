@@ -7,17 +7,15 @@
     <meta content="Extensions" property="og:title" />
     <meta content="A list of scratch extensions made by @mistium" property="og:description" />
     <meta content="https://extensions.mistium.com" property="og:url" />
-    <meta content="#9d81c7" data-react-helmet="true" name="theme-color" />
-    <link rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap">
+    <meta content="#59d2b4" data-react-helmet="true" name="theme-color" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/jpeg" href="favicon.jpg">
     <link rel="stylesheet" href="styles.css">
+    <script src="site-data.js"></script>
 </head>
 
 <body>
     <a class="skip-link" href="#main">Skip to content</a>
-    <div id="topbar"></div>
     <header class="site-hero" role="banner">
         <div class="inner">
             <div class="hero-content">
@@ -25,15 +23,28 @@
                     <img class="brand-avatar" src="https://avatars.rotur.dev/mist" alt="Mistium avatar" />
                     <div class="hero-text">
                         <h1 class="site-title">Extensions</h1>
-                        <p class="tagline">Scratch / TurboWarp helper extensions</p>
+                        <p class="tagline">Scratch and TurboWarp extensions by Mistium.</p>
                     </div>
                 </div>
                 <div class="hero-right">
-                    <label class="toggle" title="Toggle theme">
-                        <input type="checkbox" id="themeToggle" aria-label="Toggle dark / light theme">
-                        <span class="toggle-track"><span class="toggle-thumb" aria-hidden="true"></span></span>
-                        <span class="toggle-text" id="themeLabel">Dark</span>
-                    </label>
+                    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme"
+                        aria-pressed="false" title="Switch theme">
+                        <span class="theme-icon" aria-hidden="true"></span>
+                    </button>
+                </div>
+            </div>
+            <div class="hero-stats" aria-label="Extension gallery stats">
+                <div class="stat">
+                    <span class="stat-value" id="totalCount">0</span>
+                    <span class="stat-label">Extensions</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value" id="featuredCount">0</span>
+                    <span class="stat-label">Featured</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">3</span>
+                    <span class="stat-label">Examples</span>
                 </div>
             </div>
             <p class="disclaimer" role="note">Built for fun in my spare time. Some may be experimental or unfinished.
@@ -46,7 +57,7 @@
                 <div class="search-wrapper">
                     <input id="searchInput" type="search" placeholder="Search extensions..."
                         aria-label="Search extensions" autocomplete="off" />
-                    <button id="clearSearch" class="icon-btn clear-btn" aria-label="Clear search" title="Clear search"
+                    <button id="clearSearch" class="clear-btn" aria-label="Clear search" title="Clear search"
                         hidden>&times;</button>
                 </div>
                 <select id="sortSelect" aria-label="Sort extensions">
@@ -84,49 +95,51 @@
         document.addEventListener('DOMContentLoaded', () => {
             initTheme();
             initKeyboardFocusStyles();
-            fetch('https://raw.githubusercontent.com/Mistium/Origin-OS/main/topbar.html')
-                .then(response => response.text())
-                .then(html => { document.getElementById('topbar').innerHTML = html; })
-                .catch(error => console.error('Error fetching topbar HTML:', error));
 
-            Promise.all([fetchAndCacheVersions(), fetchExtensionMetadata()]).then(([versions, metadata]) => {
-                console.log('Versions loaded:', Object.keys(versions).length);
-                console.log('Metadata loaded:', metadata.length, 'extensions');
-                generateProfileCards(metadata).then(() => {
-                    setupFilteringAndSorting();
-                });
+            Promise.all([fetchVersions(), fetchExtensionMetadata()]).then(([versions, metadata]) => {
+                updateStats(metadata);
+                generateProfileCards(metadata, versions);
+                setupFilteringAndSorting();
                 generateOtherGalleries();
             });
             document.getElementById('year').textContent = new Date().getFullYear();
         });
 
-        async function fetchAndCacheVersions() {
+        async function fetchVersions() {
+            let cached = {};
             try {
-                const response = await fetch('https://raw.githubusercontent.com/Mistium/extensions.mistium/main/versions.json');
-                const versions = await response.json();
-                localStorage.setItem('extensionVersions', JSON.stringify(versions));
-                return versions;
+                cached = JSON.parse(localStorage.getItem('extensionVersions')) || {};
+            } catch (error) {
+                console.error('Error parsing cached versions:', error);
+            }
+
+            try {
+                if (window.location.protocol === 'file:' && window.extensionSiteData?.versions) {
+                    return { cached, current: window.extensionSiteData.versions };
+                }
+
+                const response = await fetch('./versions.json');
+                const current = await response.json();
+                return { cached, current };
             } catch (error) {
                 console.error('Error fetching versions data:', error);
-                return {};
+                return { cached, current: window.extensionSiteData?.versions || cached };
             }
         }
 
         async function fetchExtensionMetadata() {
             try {
-                const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-                const metadataUrl = isLocal
-                    ? './generated-metadata/extensions-v0.json'
-                    : 'https://raw.githubusercontent.com/Mistium/extensions.mistium/main/generated-metadata/extensions-v0.json';
+                if (window.location.protocol === 'file:' && window.extensionSiteData?.metadata?.extensions) {
+                    return window.extensionSiteData.metadata.extensions;
+                }
 
-                console.log('Fetching metadata from:', metadataUrl);
-                const response = await fetch(metadataUrl);
+                const response = await fetch('./generated-metadata/extensions-v0.json');
                 const data = await response.json();
 
                 return data.extensions || [];
             } catch (error) {
                 console.error('Error fetching extension metadata:', error);
-                return [];
+                return window.extensionSiteData?.metadata?.extensions || [];
             }
         }
 
@@ -151,166 +164,114 @@
             return { featured, files };
         }
 
-        async function generateProfileCards(metadata = []) {
+        function updateStats(metadata = []) {
+            document.getElementById('totalCount').textContent = metadata.length;
+            document.getElementById('featuredCount').textContent = metadata.filter(ext => ext.featured).length;
+        }
+
+        function createVersionTag(itemName, cachedVersions, versions) {
+            const versionTag = document.createElement("span");
+            versionTag.classList.add("version-tag");
+
+            if (!cachedVersions[itemName]) {
+                versionTag.textContent = "New";
+                versionTag.classList.add("new-tag");
+            } else if (versions[itemName] && versions[itemName] !== cachedVersions[itemName]) {
+                versionTag.textContent = "Updated";
+                versionTag.classList.add("updated-tag");
+            }
+
+            return versionTag;
+        }
+
+        function createExtensionMedia(item, itemName) {
+            const media = document.createElement("div");
+            media.classList.add("profile-media");
+
+            const profileImage = document.createElement("img");
+            const imagePath = item.metadata?.image || `images/${itemName}.png`;
+            profileImage.src = imagePath;
+            profileImage.alt = itemName;
+            profileImage.classList.add("profile-image");
+            profileImage.loading = 'lazy';
+            profileImage.addEventListener('load', () => {
+                media.classList.add('has-image');
+            });
+
+            profileImage.addEventListener('error', () => {
+                media.remove();
+            });
+
+            media.append(profileImage);
+            return media;
+        }
+
+        function createProfileCard(item, isFeatured, cachedVersions, versions) {
+            const itemName = item.name.replace(/\.js$/, '');
+            const download_url = item.download_url.replace("raw.githubusercontent.com/Mistium/extensions.mistium/main/", "extensions.mistium.com/");
+
+            const profileCard = document.createElement("article");
+            profileCard.classList.add("gallery-link", "profile-card");
+            profileCard.setAttribute('tabindex', '0');
+            profileCard.setAttribute('aria-label', itemName + ' extension');
+            profileCard.setAttribute('data-name', itemName.toLowerCase());
+            profileCard.setAttribute('data-featured', String(isFeatured));
+            profileCard.setAttribute('data-url', download_url);
+            profileCard.setAttribute('data-raw-url', item.download_url);
+
+            const cardContent = document.createElement("div");
+            cardContent.classList.add("card-content");
+            cardContent.appendChild(createExtensionMedia(item, itemName));
+
+            const platformHeading = document.createElement("h2");
+            platformHeading.textContent = itemName;
+            const versionTag = createVersionTag(item.name, cachedVersions, versions);
+            if (versionTag.textContent) platformHeading.appendChild(versionTag);
+            cardContent.appendChild(platformHeading);
+
+            const desc = document.createElement('p');
+            desc.className = 'ext-desc';
+            desc.textContent = item.metadata?.description || 'No description available yet.';
+            cardContent.appendChild(desc);
+
+            const actions = document.createElement('div');
+            actions.className = 'card-actions';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'icon-btn copy-btn';
+            copyBtn.setAttribute('aria-label', 'Copy extension URL');
+            copyBtn.textContent = 'Copy URL';
+            copyBtn.dataset.url = download_url;
+
+            const warpLink = document.createElement('a');
+            warpLink.className = 'icon-btn warp-btn';
+            warpLink.href = `https://warp.mistium.com/editor.html?extension=${encodeURIComponent(download_url)}`;
+            warpLink.target = '_blank';
+            warpLink.rel = 'noopener noreferrer';
+            warpLink.setAttribute('aria-label', 'Open in MistWarp');
+            warpLink.textContent = 'Open in Warp';
+
+            actions.append(copyBtn, warpLink);
+            profileCard.append(cardContent, actions);
+            return profileCard;
+        }
+
+        function generateProfileCards(metadata = [], versionState = { cached: {}, current: {} }) {
             const featuredCardsContainer = document.getElementById("featuredCards");
             const fileCardsContainer = document.getElementById("fileCards");
             const data = processMetadata(metadata);
-
-            let cachedVersions = {};
-            try {
-                cachedVersions = JSON.parse(localStorage.getItem('extensionVersions')) || {};
-            } catch (e) {
-                console.error('Error parsing cached versions:', e);
-            }
-
-            const versions = await fetchAndCacheVersions();
+            const cachedVersions = versionState.cached || {};
+            const versions = versionState.current || {};
 
             if (!data || !data.featured || !Array.isArray(data.featured) || !data.files || !Array.isArray(data.files)) return;
 
             data.featured.forEach(item => {
-                const itemName = item.name.split('.')[0];
-                const isJsFile = item.name.endsWith('.js');
-
-                if (isJsFile) {
-                    const profileCardLink = document.createElement("a");
-                    const download_url = item.download_url.replace("raw.githubusercontent.com/Mistium/extensions.mistium/main/", "extensions.mistium.com/")
-                    profileCardLink.href = download_url;
-                    profileCardLink.target = "_blank";
-                    profileCardLink.rel = "noopener noreferrer";
-                    profileCardLink.classList.add("gallery-link");
-                    profileCardLink.setAttribute('data-name', itemName.toLowerCase());
-                    profileCardLink.setAttribute('data-featured', 'true');
-                    profileCardLink.setAttribute('data-url', download_url);
-                    profileCardLink.setAttribute('data-raw-url', item.download_url);
-
-                    const profileCard = document.createElement("div");
-                    profileCard.classList.add("profile-card");
-                    profileCard.setAttribute('tabindex', '0');
-                    profileCard.setAttribute('role', 'article');
-                    profileCard.setAttribute('aria-label', itemName + ' extension');
-
-                    const cardContent = document.createElement("div");
-                    cardContent.classList.add("card-content");
-
-                    const profileImage = document.createElement("img");
-                    profileImage.src = `https://raw.githubusercontent.com/Mistium/extensions.mistium/main/images/${itemName}.png`;
-                    profileImage.alt = itemName;
-                    profileImage.classList.add("profile-image");
-                    profileImage.loading = 'lazy';
-                    profileImage.addEventListener('error', () => { profileImage.src = 'https://avatars.githubusercontent.com/u/175630084?s=200&v=4'; profileImage.classList.add('fallback'); });
-
-                    const platformHeading = document.createElement("h2");
-                    platformHeading.textContent = itemName;
-
-                    const versionTag = document.createElement("span");
-                    versionTag.classList.add("version-tag");
-                    if (!cachedVersions[item.name]) {
-                        versionTag.textContent = "New";
-                        versionTag.classList.add("new-tag");
-                    } else if (versions[item.name] && versions[item.name] !== cachedVersions[item.name]) {
-                        versionTag.textContent = "Updated";
-                        versionTag.classList.add("updated-tag");
-                    }
-
-                    cardContent.appendChild(profileImage);
-                    cardContent.appendChild(platformHeading);
-                    const desc = document.createElement('p');
-                    desc.className = 'ext-desc';
-                    desc.textContent = item.metadata?.description || 'No description available yet.';
-                    cardContent.appendChild(desc);
-                    if (versionTag.textContent) {
-                        platformHeading.appendChild(versionTag);
-                    }
-
-                    const actions = document.createElement('div');
-                    actions.className = 'card-actions';
-                    const copyBtn = document.createElement('button');
-                    copyBtn.type = 'button';
-                    copyBtn.className = 'icon-btn copy-btn';
-                    copyBtn.setAttribute('aria-label', 'Copy extension URL');
-                    copyBtn.innerHTML = '<span>Copy URL</span>';
-                    copyBtn.dataset.url = download_url;
-                    const warpLink = document.createElement('a');
-                    warpLink.className = 'icon-btn warp-btn';
-                    warpLink.href = `https://warp.mistium.com/editor.html?extension=${encodeURIComponent(download_url)}`;
-                    warpLink.target = '_blank';
-                    warpLink.rel = 'noopener noreferrer';
-                    warpLink.setAttribute('aria-label', 'Open in MistWarp');
-                    warpLink.innerHTML = '<span>Open in Warp</span>';
-                    actions.append(copyBtn, warpLink);
-
-                    profileCard.appendChild(cardContent);
-                    profileCard.appendChild(actions);
-                    profileCardLink.appendChild(profileCard);
-                    featuredCardsContainer.appendChild(profileCardLink);
-                }
+                if (item.name.endsWith('.js')) featuredCardsContainer.appendChild(createProfileCard(item, true, cachedVersions, versions));
             });
 
             data.files.forEach(item => {
-                const itemName = item.name.split('.')[0];
-                const isJsFile = item.name.endsWith('.js');
-
-                if (isJsFile) {
-                    const profileCardLink = document.createElement("a");
-                    const download_url = item.download_url.replace("raw.githubusercontent.com/Mistium/extensions.mistium/main/", "extensions.mistium.com/")
-                    profileCardLink.href = download_url;
-                    profileCardLink.target = "_blank";
-                    profileCardLink.rel = "noopener noreferrer";
-                    profileCardLink.classList.add("gallery-link");
-                    profileCardLink.setAttribute('data-name', itemName.toLowerCase());
-                    profileCardLink.setAttribute('data-featured', 'false');
-                    profileCardLink.setAttribute('data-url', download_url);
-                    profileCardLink.setAttribute('data-raw-url', item.download_url);
-
-                    const profileCard = document.createElement("div");
-                    profileCard.classList.add("profile-card");
-                    profileCard.setAttribute('tabindex', '0');
-                    profileCard.setAttribute('role', 'article');
-                    profileCard.setAttribute('aria-label', itemName + ' extension');
-
-                    const cardContent = document.createElement("div");
-                    cardContent.classList.add("card-content");
-
-                    const platformHeading = document.createElement("h2");
-                    platformHeading.textContent = itemName;
-                    const versionTag = document.createElement("span");
-                    versionTag.classList.add("version-tag");
-                    if (!cachedVersions[item.name]) {
-                        versionTag.textContent = "New";
-                        versionTag.classList.add("new-tag");
-                    } else if (versions[item.name] && versions[item.name] !== cachedVersions[item.name]) {
-                        versionTag.textContent = "Updated";
-                        versionTag.classList.add("updated-tag");
-                    }
-                    if (versionTag.textContent) platformHeading.appendChild(versionTag);
-                    cardContent.appendChild(platformHeading);
-                    const desc = document.createElement('p');
-                    desc.className = 'ext-desc';
-                    desc.textContent = item.metadata?.description || 'No description available yet.';
-                    cardContent.appendChild(desc);
-
-                    const actions = document.createElement('div');
-                    actions.className = 'card-actions';
-                    const copyBtn = document.createElement('button');
-                    copyBtn.type = 'button';
-                    copyBtn.className = 'icon-btn copy-btn';
-                    copyBtn.setAttribute('aria-label', 'Copy extension URL');
-                    copyBtn.innerHTML = '<span>Copy URL</span>';
-                    copyBtn.dataset.url = download_url;
-                    const warpLink = document.createElement('a');
-                    warpLink.className = 'icon-btn warp-btn';
-                    warpLink.href = `https://warp.mistium.com/editor.html?extension=${encodeURIComponent(download_url)}`;
-                    warpLink.target = '_blank';
-                    warpLink.rel = 'noopener noreferrer';
-                    warpLink.setAttribute('aria-label', 'Open in MistWarp');
-                    warpLink.innerHTML = '<span>Open in Warp</span>';
-                    actions.append(copyBtn, warpLink);
-
-                    profileCard.appendChild(cardContent);
-                    profileCard.appendChild(actions);
-                    profileCardLink.appendChild(profileCard);
-                    fileCardsContainer.appendChild(profileCardLink);
-                }
+                if (item.name.endsWith('.js')) fileCardsContainer.appendChild(createProfileCard(item, false, cachedVersions, versions));
             });
 
             localStorage.setItem('extensionVersions', JSON.stringify(versions));
@@ -416,16 +377,20 @@
 
         function initTheme() {
             const toggle = document.getElementById('themeToggle');
-            const label = document.getElementById('themeLabel');
             const saved = localStorage.getItem('theme') || 'dark';
-            document.documentElement.dataset.theme = saved;
-            toggle.checked = saved === 'light';
-            label.textContent = saved === 'light' ? 'Light' : 'Dark';
-            toggle.addEventListener('change', () => {
-                const mode = toggle.checked ? 'light' : 'dark';
+
+            function renderTheme(mode) {
                 document.documentElement.dataset.theme = mode;
+                toggle.dataset.mode = mode;
+                toggle.setAttribute('aria-pressed', String(mode === 'light'));
+                toggle.setAttribute('aria-label', mode === 'light' ? 'Switch to dark theme' : 'Switch to light theme');
+            }
+
+            renderTheme(saved);
+            toggle.addEventListener('click', () => {
+                const mode = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+                renderTheme(mode);
                 localStorage.setItem('theme', mode);
-                label.textContent = mode === 'light' ? 'Light' : 'Dark';
             });
         }
 
@@ -442,16 +407,19 @@
         document.addEventListener('click', e => {
             const btn = e.target.closest('.copy-btn');
             if (!btn) return;
+            e.preventDefault();
+            e.stopPropagation();
             const url = btn.dataset.url;
             if (!url) return;
             navigator.clipboard.writeText(url).then(() => {
-                const original = btn.innerHTML;
+                const original = btn.textContent;
                 btn.classList.add('copied');
-                btn.innerHTML = '<span class="icon">✅</span>';
-                setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = original; }, 1500);
+                btn.textContent = 'Copied';
+                setTimeout(() => { btn.classList.remove('copied'); btn.textContent = original; }, 1500);
             }).catch(() => {
-                btn.innerHTML = '<span class="icon">⚠️</span>';
-                setTimeout(() => { btn.innerHTML = '<span class="icon">📋</span>'; }, 1500);
+                const original = btn.textContent;
+                btn.textContent = 'Copy failed';
+                setTimeout(() => { btn.textContent = original; }, 1500);
             });
         });
     </script>

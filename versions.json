@@ -8,6 +8,7 @@
   "Mist's Utils.js": "5.6",
   "MistFetch.js": "1",
   "OASM.js": "10.6",
+  "Persistent File System.js": "1",
   "Python.js": "3.2",
   "RDF.js": "2",
   "Rotur.js": "2",
@@ -38,5 +39,6 @@
   "USB.js": "1",
   "Virtual File System.js": "1",
   "originOSL.js": "1",
-  "roturVoice Advanced.js": "1"
+  "roturVoice Advanced.js": "1",
+  "xml.js": "1"
 }

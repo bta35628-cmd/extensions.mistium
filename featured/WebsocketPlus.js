@@ -10,6 +10,10 @@
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
 (function (Scratch) {
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("WebsocketPlus must run unsandboxed.");
+  }
+
   async function sendMessage(serverID, MESSAGE) {
     const ws = serverID;
     if (ws && ws.readyState === WebSocket.OPEN) {

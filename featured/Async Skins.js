@@ -19,6 +19,10 @@
 (function (Scratch) {
   "use strict";
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("Skins must run unsandboxed.");
+  }
+
   const requireNonPackagedRuntime = (blockName) => {
     if (Scratch.vm.runtime.isPackaged) {
       alert(

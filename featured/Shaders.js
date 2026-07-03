@@ -8,6 +8,10 @@
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
 (function (Scratch) {
+    if (!Scratch.extensions.unsandboxed) {
+        throw new Error("Shaders must run unsandboxed.");
+    }
+
     const vm = Scratch.vm;
     const runtime = vm.runtime;
     const renderer = runtime.renderer;
@@ -17,7 +21,6 @@
         constructor() {
             this.canvases = {};
             this.shaders = {};
-            console.log('ShadersExtension initialized');
         }
 
         getInfo() {

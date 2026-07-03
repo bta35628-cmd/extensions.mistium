@@ -10,6 +10,10 @@
 (function (Scratch) {
   "use strict";
 
+  if (!Scratch.extensions.unsandboxed) {
+    throw new Error("IndexedDB must run unsandboxed.");
+  }
+
   const cast = Scratch.Cast;
 
   function label(text) {

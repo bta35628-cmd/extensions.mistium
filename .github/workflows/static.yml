@@ -256,74 +256,16 @@ jobs:
 
       - name: Generate Extensions Metadata
         run: |
-          node -e "
-          const fs = require('fs');
-          const path = require('path');
-          const { execSync } = require('child_process');
-
-          // Read files from directories
-          const featuredDir = 'featured';
-          const imagesDir = 'images';
-          const versionsFile = 'versions.json';
-          const metadataDir = 'generated-metadata';
-
-          // Create metadata directory if it doesn't exist
-          if (!fs.existsSync(metadataDir)) {
-              fs.mkdirSync(metadataDir, { recursive: true });
-          }
-
-          // Read versions data
-          const versions = JSON.parse(fs.readFileSync(versionsFile, 'utf8'));
-
-          // Get featured files data
-          const extensions = fs.readdirSync(featuredDir)
-              .filter(file => file.endsWith('.js'))
-              .map(file => {
-                  const filePath = path.join(featuredDir, file);
-                  const stats = fs.statSync(filePath);
-                  const name = file.split('.')[0];
-                  const imagePath = path.join(imagesDir, name + '.png');
-                  
-                  return {
-                      slug: name.toLowerCase(),
-                      id: name,
-                      name: name,
-                      description: '',
-                      image: 'images/' + name + '.png',
-                      by: [{
-                          name: 'Mistium',
-                          link: 'https://github.com/Mistium'
-                      }]
-                  };
-              });
-
-          // Create the metadata object
-          const metadata = {
-              extensions: extensions
-          };
-
-          // Write the metadata file
-          fs.writeFileSync(path.join(metadataDir, 'extensions-v0.json'), JSON.stringify(metadata, null, 2));
-          console.log('Successfully generated extensions metadata file');
-
-          // Commit the generated metadata file
-          try {
-              const commands = [
-                  ['git', 'config', '--local', 'user.email', 'action@github.com'],
-                  ['git', 'config', '--local', 'user.name', 'GitHub Action'],
-                  ['git', 'add', path.join(metadataDir, 'extensions-v0.json')],
-                  ['git', 'commit', '-m', '\"Update extensions metadata\"'],
-                  ['git', 'push']
-              ];
-              
-              for (const cmd of commands) {
-                  execSync(cmd.join(' '), { stdio: 'inherit' });
-              }
-              console.log('Committed extensions metadata file');
-          } catch (error) {
-              console.log('No changes to commit or error in committing:', error);
-          }
-          "
+          node generate-metadata.js
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add generated-metadata/extensions-v0.json site-data.js
+          if git diff --cached --quiet; then
+            echo "No metadata changes to commit"
+          else
+            git commit -m "Update extensions metadata"
+            git push
+          fi
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

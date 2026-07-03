@@ -10,6 +10,10 @@
 (function (Scratch) {
     "use strict";
 
+    if (!Scratch.extensions.unsandboxed) {
+        throw new Error("Iframe+ must run unsandboxed.");
+    }
+
     const iframesMap = new Map();
     const messageMap = new Map();
     const SANDBOX = [

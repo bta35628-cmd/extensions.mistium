@@ -1,3 +1,7 @@
+// Name: Export Sprite Data URI
+// Author: Mistium
+// Description: Export sprites as data URI strings.
+
 // License: MPL-2.0
 // This Source Code is subject to the terms of the Mozilla Public License, v2.0,
 // If a copy of the MPL was not distributed with this file,
@@ -5,6 +9,10 @@
 
 (function (Scratch) {
     "use strict";
+
+    if (!Scratch.extensions.unsandboxed) {
+      throw new Error("Export Sprite must run unsandboxed.");
+    }
 
     const vm = Scratch.vm;
 
@@ -38,7 +46,10 @@
       exportSprite(args, util) {
         return new Promise((resolve, reject) => {
           let target = this._getTargetFromMenu(Scratch.Cast.toString(args.TARGET), util);
-          console.log(target);
+          if (!target) {
+            resolve("");
+            return;
+          }
           Scratch.vm.exportSprite(target.id).then(val => {
             this._blobToDataURL(val, (dataurl) => {
               resolve(dataurl);
@@ -50,7 +61,7 @@
       _getTargetFromMenu(targetName, util) {
         let target = Scratch.vm.runtime.getSpriteTargetByName(targetName);
         if (targetName === "_myself_") target = util.target;
-        if (targetName === "_stage_") target = runtime.getTargetForStage();
+        if (targetName === "_stage_") target = vm.runtime.getTargetForStage();
         return target;
       }
 

@@ -7,6 +7,10 @@
 // If a copy of the MPL was not distributed with this file,
 // Then you can obtain one at https://mozilla.org/MPL/2.0/
 
+if (!Scratch.extensions.unsandboxed) {
+  throw new Error("Rotur must run unsandboxed.");
+}
+
 // Block utilities for creating blocks with less code
 const blocks = {
   reporter: function (opcode, text, args = {}, options = {}) {
@@ -70,7 +74,7 @@ const blocks = {
   }
 };
 
-randomString = function (length) {
+const randomString = function (length) {
   var result = "";
   var characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   var charactersLength = characters.length;

@@ -9,6 +9,10 @@
 
 (function (Scratch) {
 
+    if (!Scratch.extensions.unsandboxed) {
+        throw new Error("EvalPlus must run unsandboxed.");
+    }
+
     const cast = Scratch.Cast;
 
     class EvalPlus {
@@ -62,13 +66,13 @@
                     "---",
                     {
                         blockType: Scratch.BlockType.LABEL,
-                        text: 'Restricted Eval'
+                        text: 'Character Filtered Eval'
                     },
                     // Restricted Eval Blocks
                     {
                         opcode: 'restrictedCmdBlock',
                         blockType: Scratch.BlockType.COMMAND,
-                        text: 'restricted evaluate [CODE]',
+                        text: 'filtered evaluate [CODE]',
                         arguments: {
                             CODE: { type: Scratch.ArgumentType.STRING, defaultValue: 'alert(\'Hello :D\')' }
                         },
@@ -77,7 +81,7 @@
                     {
                         opcode: 'restrictedBoolBlock',
                         blockType: Scratch.BlockType.BOOLEAN,
-                        text: 'restricted evaluate [CODE]',
+                        text: 'filtered evaluate [CODE]',
                         arguments: {
                             CODE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }
                         },
@@ -86,7 +90,7 @@
                     {
                         opcode: 'restrictedReporterBlock',
                         blockType: Scratch.BlockType.REPORTER,
-                        text: 'restricted evaluate [CODE]',
+                        text: 'filtered evaluate [CODE]',
                         arguments: {
                             CODE: { type: Scratch.ArgumentType.STRING, defaultValue: '' }
                         },
@@ -301,13 +305,15 @@
                 const self = this;
                 const originalLog = console.log;
                 
-                console.log = function (...args) {
-                    self.consoleOutput.push(args.join(' '));
-                };
-                eval(CODE)
-                
-                console.log = originalLog
-                
+                try {
+                    console.log = function (...args) {
+                        self.consoleOutput.push(args.join(' '));
+                    };
+                    eval(CODE);
+                } finally {
+                    console.log = originalLog;
+                }
+
                 return this.consoleOutput.join('\n');
             } catch (error) {
                 console.error("Error:", error);
@@ -319,7 +325,7 @@
             CODE = cast.toString(CODE);
             try {
                 if (!this.enabled) return;
-                // Add more restrictions if needed
+                // This is a convenience filter, not a security boundary.
                 if (!/^[a-zA-Z0-9\s()\[\]{};.,\-+=*\/%]*$/.test(CODE)) {
                     throw new Error("Invalid characters detected.");
                 }
