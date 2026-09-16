@@ -1,0 +1,12 @@
+{
+  "private": true,
+  "description": "Build tooling for the extensions.mistium site. The hosted extension files stay dependency-free; only scripts/ and src/ use node modules.",
+  "scripts": {
+    "build:rotur": "node scripts/build-rotur-extension.mjs",
+    "metadata": "node generate-metadata.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "rotur-sdk": "^2.4.0"
+  }
+}
